@@ -309,7 +309,7 @@ func runLogin(client *http.Client, cfg config, loginPathArg string, proxyURL str
 
 	openBrowser(flow.AuthURL)
 
-	infof("waiting for browser callback on localhost:1455 (timeout: 5 min)...")
+	infof("waiting for browser callback on localhost:1455 (timeout: 30 min)...")
 	infof("after login the browser redirects to localhost:1455 — the page can be closed once it says success.")
 
 	ctx, cancel := context.WithTimeout(context.Background(), oauthCallbackTimeout)

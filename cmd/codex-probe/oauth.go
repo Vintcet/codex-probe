@@ -20,7 +20,7 @@ const (
 	codexOAuthRedirectURI  = "http://localhost:1455/auth/callback"
 	codexOAuthScope        = "openid profile email offline_access"
 	codexJWTClaimPath      = "https://api.openai.com/auth"
-	oauthCallbackTimeout   = 5 * time.Minute
+	oauthCallbackTimeout   = 30 * time.Minute
 )
 
 type oauthFlow struct {
