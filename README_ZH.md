@@ -40,6 +40,13 @@
 | macOS Apple Silicon | `codex-probe-darwin-arm64` |
 | Windows x86-64 | `codex-probe-windows-amd64.exe` |
 
+> **macOS 用户注意：** 本程序未经 Apple Developer 签名，下载后需手动解除隔离才能运行：
+> ```bash
+> xattr -d com.apple.quarantine codex-probe-darwin-*
+> chmod +x codex-probe-darwin-*
+> ./codex-probe-darwin-*
+> ```
+
 **从源码编译**
 
 ```bash

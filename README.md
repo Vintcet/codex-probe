@@ -40,6 +40,13 @@ Download from [Releases](../../releases):
 | macOS Apple Silicon | `codex-probe-darwin-arm64` |
 | Windows x86-64 | `codex-probe-windows-amd64.exe` |
 
+> **macOS users:** The binary is not signed with an Apple Developer certificate. You need to remove the quarantine attribute before running:
+> ```bash
+> xattr -d com.apple.quarantine codex-probe-darwin-*
+> chmod +x codex-probe-darwin-*
+> ./codex-probe-darwin-*
+> ```
+
 **Build from source**
 
 ```bash
