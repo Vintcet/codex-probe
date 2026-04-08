@@ -32,7 +32,9 @@ Last positional argument (required):
 Options:
   --login          OAuth PKCE login, listen on :1455, write credential JSON
   -o       <path>  Output file or directory for --login (required with --login)
-  --renew          Refresh credential(s) with refresh_token and write back JSON
+  --config <path>  Config file path; default is config.json next to the executable
+  --renew          Refresh credential(s) with refresh_token and write back JSON by policy
+  -f               Force refresh when used with --renew
   --status         Query remaining quota (5h window + weekly window)
   --apitest        Test availability of every model endpoint
   --output <path>  Write --status / --apitest results to a CSV file (must end in .csv)
@@ -56,8 +58,10 @@ type config struct {
 	doRenew      bool
 	doStatus     bool
 	doAPITest    bool
+	forceRenew   bool
 	loginOutPath string
 	output       string
+	configPath   string
 	// proxySet=false           → auto-detect system proxy
 	// proxySet=true, proxy=""  → force direct (no proxy)
 	// proxySet=true, proxy!="" → use this URL
@@ -81,6 +85,16 @@ func main() {
 		fmt.Print(helpText)
 		os.Exit(0)
 	}
+
+	exePath, err := os.Executable()
+	if err != nil {
+		fatalf("failed to determine executable path: %v", err)
+	}
+	probeCfg, configPath, err := loadProbeConfig(cfg.configPath, exePath)
+	if err != nil {
+		fatalf("failed to load config: %v", err)
+	}
+	infof("config: %s", configPath)
 
 	if cfg.output != "" && !strings.HasSuffix(strings.ToLower(cfg.output), ".csv") {
 		fatalf("--output path must end with .csv, got: %s", cfg.output)
@@ -123,12 +137,21 @@ func main() {
 
 		if cfg.doRenew {
 			fmt.Println(colorCyan("  [renew]"))
-			renewedKey, err := renewKeyEntry(ctx, client, entry, codexOAuthTokenURL)
-			if err != nil {
+			needRenew, reason := shouldRenewKey(entry.key, probeCfg, cfg.forceRenew, time.Now())
+			if !needRenew {
+				infof("  skipped: policy not matched (use -f to force refresh)")
+				renewRows = append(renewRows, RenewResult{
+					File:      entry.path,
+					AccountID: entry.key.AccountID,
+					Skipped:   true,
+					Reason:    "policy not matched (use -f to force refresh)",
+				})
+			} else if renewedKey, err := renewKeyEntryWithRetry(ctx, client, entry, codexOAuthTokenURL, defaultRenewRetryMax); err != nil {
 				errorf("  renew failed: %v", err)
 				renewRows = append(renewRows, RenewResult{
 					File:      entry.path,
 					AccountID: entry.key.AccountID,
+					Reason:    reason,
 					Err:       err,
 				})
 			} else {
@@ -137,13 +160,14 @@ func main() {
 				renewRows = append(renewRows, RenewResult{
 					File:      entry.path,
 					AccountID: entry.key.AccountID,
+					Reason:    reason,
 				})
 			}
 		}
 
 		if cfg.doStatus {
 			fmt.Println(colorCyan("  [quota]"))
-			res := fetchUsage(ctx, client, entry)
+			res := fetchUsage(ctx, client, entry, probeCfg)
 			printUsageResult(res)
 			usageRows = append(usageRows, res)
 		}
@@ -259,6 +283,8 @@ func parseArgs(args []string) config {
 			cfg.doLogin = true
 		case "--renew":
 			cfg.doRenew = true
+		case "-f":
+			cfg.forceRenew = true
 		case "--status":
 			cfg.doStatus = true
 		case "--apitest", "--test":
@@ -275,6 +301,12 @@ func parseArgs(args []string) config {
 				fatalf("--output requires a path argument")
 			}
 			cfg.output = args[i]
+		case "--config":
+			i++
+			if i >= len(args) {
+				fatalf("--config requires a path argument")
+			}
+			cfg.configPath = args[i]
 		case "--proxy":
 			i++
 			if i >= len(args) {

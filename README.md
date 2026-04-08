@@ -66,11 +66,17 @@ codex-probe --login -o ./tokens/
 # Refresh credential JSON in place
 codex-probe --renew ./tokens/my.json
 
+# Force refresh credential JSON in place
+codex-probe --renew -f ./tokens/my.json
+
 # Check remaining quota
 codex-probe --status ./tokens/my.json
 
 # Test all model endpoints
 codex-probe --apitest ./tokens/
+
+# Use a custom config file
+codex-probe --config ./config.json --renew ./tokens/
 
 # Quota + apitest, export to CSV
 codex-probe --status --apitest --output result.csv ./tokens/
@@ -90,7 +96,9 @@ Usage:
 Options:
   --login          OAuth PKCE login, listen on :1455, write credential JSON
   -o       <path>  Output file or directory for --login (required with --login)
-  --renew          Refresh credential(s) with refresh_token and write back JSON
+  --config <path>  Config file path; default is config.json next to the executable
+  --renew          Refresh credential(s) with refresh_token and write back JSON by policy
+  -f               Force refresh when used with --renew
   --status         Query remaining quota (5h window + weekly window)
   --apitest        Test availability of every model endpoint (--test is an alias)
   --output <path>  Write results to a CSV file (must end in .csv)
@@ -111,12 +119,32 @@ Options:
 
 ```json
 {
+  "id_token": "eyJ...",
   "access_token": "eyJ...",
   "refresh_token": "...",
   "account_id": "user-...",
-  "email": "you@example.com"
+  "email": "you@example.com",
+  "last_refresh": "2026-04-08T10:11:18Z",
+  "type": "codex",
+  "expired": "2026-04-18T10:11:18Z"
 }
 ```
+
+---
+
+## Configuration
+
+By default, `codex-probe` loads `config.json` from the same directory as the executable.
+
+If the file does not exist, it will be created automatically with:
+
+```json
+{
+  "renew_before_expiry_days": 3
+}
+```
+
+You can override it with `--config <path>`.
 
 ---
 
@@ -166,10 +194,20 @@ When `--proxy` is not specified, the following are tried in order:
 1. Generates random `state` + PKCE `verifier / S256 challenge`
 2. Opens `https://auth.openai.com/oauth/authorize` with Codex CLI's `client_id`
 3. Listens on `localhost:1455/auth/callback` for the browser redirect
-4. Exchanges `code + verifier` → `access_token + refresh_token`
+4. Exchanges `code + verifier` → `access_token + refresh_token + id_token`
 5. Decodes JWT to extract `account_id` and `email`
 
-Expired tokens are refreshed automatically on 401/403, and you can also force a refresh explicitly with `--renew`.
+Refresh behavior:
+
+1. `--renew` checks each credential file independently
+2. A credential is refreshed when any of these is true:
+   - `-f` is set
+   - `id_token` is missing
+   - `expired` is missing or invalid
+   - the token expires within `renew_before_expiry_days`
+3. Otherwise the credential is skipped
+4. Each refresh retries up to 3 times internally
+5. `--status` also auto-refreshes on 401/403 using the same retry limit
 
 ---
 

@@ -66,11 +66,17 @@ codex-probe --login -o ./tokens/
 # 就地续期凭证 JSON
 codex-probe --renew ./tokens/my.json
 
+# 强制刷新凭证 JSON
+codex-probe --renew -f ./tokens/my.json
+
 # 查看剩余用量
 codex-probe --status ./tokens/my.json
 
 # 测试所有模型接口
 codex-probe --apitest ./tokens/
+
+# 指定自定义配置文件
+codex-probe --config ./config.json --renew ./tokens/
 
 # 用量 + 测试，同时导出 CSV
 codex-probe --status --apitest --output result.csv ./tokens/
@@ -90,7 +96,9 @@ Usage:
 Options:
   --login          OAuth PKCE 登录，监听 :1455 回调，写入凭证 JSON
   -o       <path>  --login 的输出文件或目录（与 --login 一起使用时必填）
-  --renew          用 refresh_token 刷新凭证并回写 JSON
+  --config <path>  配置文件路径；默认使用可执行文件同级的 config.json
+  --renew          按策略使用 refresh_token 刷新凭证并回写 JSON
+  -f               与 --renew 一起使用时，强制刷新
   --status         查询剩余用量（5小时窗口 + 每周窗口）
   --apitest        对每个模型发最小请求，报告可用性（--test 为别名）
   --output <path>  将结果写入 CSV 文件（须以 .csv 结尾）
@@ -110,12 +118,32 @@ Options:
 
 ```json
 {
+  "id_token": "eyJ...",
   "access_token": "eyJ...",
   "refresh_token": "...",
   "account_id": "user-...",
-  "email": "you@example.com"
+  "email": "you@example.com",
+  "last_refresh": "2026-04-08T10:11:18Z",
+  "type": "codex",
+  "expired": "2026-04-18T10:11:18Z"
 }
 ```
+
+---
+
+## 配置文件
+
+默认情况下，`codex-probe` 会读取“可执行文件所在目录”下的 `config.json`。
+
+如果该文件不存在，会自动生成默认内容：
+
+```json
+{
+  "renew_before_expiry_days": 3
+}
+```
+
+也可以通过 `--config <path>` 指定自定义配置文件。
 
 ---
 
@@ -165,10 +193,20 @@ Options:
 1. 生成随机 `state` + PKCE `verifier / S256 challenge`
 2. 使用 Codex CLI 的 `client_id` 打开 `https://auth.openai.com/oauth/authorize`
 3. 监听 `localhost:1455/auth/callback` 等待浏览器回调
-4. 用 `code + verifier` 换取 `access_token + refresh_token`
+4. 用 `code + verifier` 换取 `access_token + refresh_token + id_token`
 5. 解码 JWT 提取 `account_id` 和 `email`
 
-遇到 401/403 时会自动用 `refresh_token` 续期，也可以用 `--renew` 显式强制刷新。
+刷新策略如下：
+
+1. `--renew` 会对每个凭证文件独立判断，不会把单个文件的条件扩散到整个目录
+2. 满足任一条件时会刷新：
+   - 传了 `-f`
+   - 缺少 `id_token`
+   - `expired` 缺失或非法
+   - 距离过期时间不超过 `renew_before_expiry_days`
+3. 否则会跳过该凭证
+4. 每次刷新内部最多重试 3 次
+5. `--status` 遇到 401/403 时，也会按同样的重试上限自动续期
 
 ---
 

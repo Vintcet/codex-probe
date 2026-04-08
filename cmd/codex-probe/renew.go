@@ -12,6 +12,8 @@ import (
 type RenewResult struct {
 	File      string
 	AccountID string
+	Skipped   bool
+	Reason    string
 	Err       error
 }
 
@@ -29,6 +31,10 @@ func writeRenewSummary(w io.Writer, rows []RenewResult) {
 		if r.Err != nil {
 			fail++
 			fmt.Fprintf(w, "  %-40s  %s\n", label, colorRed("ERROR: "+r.Err.Error()))
+			continue
+		}
+		if r.Skipped {
+			fmt.Fprintf(w, "  %-40s  %s\n", label, colorCyan("skipped: "+r.Reason))
 			continue
 		}
 		ok++
@@ -71,4 +77,44 @@ func renewKeyEntry(ctx context.Context, client *http.Client, entry keyEntry, tok
 		return nil, err
 	}
 	return entry.key, nil
+}
+
+func renewKeyEntryWithRetry(ctx context.Context, client *http.Client, entry keyEntry, tokenURL string, maxRetries int) (*OAuthKey, error) {
+	if maxRetries <= 0 {
+		maxRetries = 1
+	}
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		updated, err := renewKeyEntry(ctx, client, entry, tokenURL)
+		if err == nil {
+			return updated, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func shouldRenewKey(key *OAuthKey, cfg ProbeConfig, force bool, now time.Time) (bool, string) {
+	if force {
+		return true, "force"
+	}
+	if key == nil {
+		return true, "missing credential"
+	}
+	if strings.TrimSpace(key.IDToken) == "" {
+		return true, "missing id_token"
+	}
+	expiredRaw := strings.TrimSpace(key.Expired)
+	if expiredRaw == "" {
+		return true, "missing expired"
+	}
+	expiry, err := time.Parse(time.RFC3339, expiredRaw)
+	if err != nil {
+		return true, "invalid expired"
+	}
+	threshold := now.Add(time.Duration(cfg.RenewBeforeExpiryDays) * 24 * time.Hour)
+	if !expiry.After(threshold) {
+		return true, "expiring soon"
+	}
+	return false, ""
 }

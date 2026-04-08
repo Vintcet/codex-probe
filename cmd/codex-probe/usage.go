@@ -15,12 +15,12 @@ const codexBaseURL = "https://chatgpt.com"
 
 // UsageResult holds parsed usage info for one credential.
 type UsageResult struct {
-	File          string
-	AccountID     string
-	Email         string
-	PlanType      string
-	Allowed       bool
-	LimitReached  bool
+	File           string
+	AccountID      string
+	Email          string
+	PlanType       string
+	Allowed        bool
+	LimitReached   bool
 	UpstreamStatus int
 
 	FiveHour *WindowInfo
@@ -40,7 +40,7 @@ type WindowInfo struct {
 
 // fetchUsage calls GET /backend-api/wham/usage and returns a UsageResult.
 // If the token is expired (401/403) and a refresh_token is present, it refreshes automatically.
-func fetchUsage(ctx context.Context, client *http.Client, entry keyEntry) UsageResult {
+func fetchUsage(ctx context.Context, client *http.Client, entry keyEntry, probeCfg ProbeConfig) UsageResult {
 	res := UsageResult{
 		File:      entry.path,
 		AccountID: entry.key.AccountID,
@@ -59,7 +59,7 @@ func fetchUsage(ctx context.Context, client *http.Client, entry keyEntry) UsageR
 		infof("  token expired (HTTP %d), refreshing...", statusCode)
 		refreshCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
-		renewedKey, refreshErr := renewKeyEntry(refreshCtx, client, entry, codexOAuthTokenURL)
+		renewedKey, refreshErr := renewKeyEntryWithRetry(refreshCtx, client, entry, codexOAuthTokenURL, defaultRenewRetryMax)
 		if refreshErr == nil {
 			entry.key = renewedKey
 			infof("  token refreshed and saved to %s", entry.path)
