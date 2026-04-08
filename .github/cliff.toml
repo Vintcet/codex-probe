@@ -42,7 +42,7 @@ body = """
     - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
       {% if commit.breaking %}[**breaking**] {% endif %}\
       {{ commit.message | split(pat="\n") | first | upper_first }} \
-      {{ self::github_mention(commit) }}
+      {{ self::github_mention(commit=commit) }}
 {%- endmacro -%}
 
 {% if version %}\
