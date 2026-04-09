@@ -1,4 +1,5 @@
 keys/*
+tokens/*
 codex-probe
 !cmd/codex-probe/
 !cmd/codex-probe/*.go

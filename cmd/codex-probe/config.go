@@ -12,6 +12,10 @@ const defaultRenewRetryMax = 3
 
 type ProbeConfig struct {
 	RenewBeforeExpiryDays int `json:"renew_before_expiry_days"`
+	SyncURL               string `json:"sync_url"`
+	SyncAPIKey            string `json:"sync_api_key"`
+	SyncAESGCMKey         string `json:"sync_aes_gcm_key"`
+	SyncDir               string `json:"sync_dir"`
 }
 
 func defaultProbeConfig() ProbeConfig {

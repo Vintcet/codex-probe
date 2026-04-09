@@ -35,6 +35,7 @@ Options:
   --config <path>  Config file path; default is config.json next to the executable
   --renew          Refresh credential(s) with refresh_token and write back JSON by policy
   -f               Force refresh when used with --renew
+  --sync           Synchronize local token files with the configured remote store
   --status         Query remaining quota (5h window + weekly window)
   --apitest        Test availability of every model endpoint
   --output <path>  Write --status / --apitest results to a CSV file (must end in .csv)
@@ -46,6 +47,7 @@ Options:
 Examples:
   codex-probe --login -o ./keys/my.json
   codex-probe --login -o ./keys/
+  codex-probe --sync
   codex-probe --renew ./keys/my.json
   codex-probe --status ./keys/my.json
   codex-probe --apitest --output apitest.csv ./keys/
@@ -56,6 +58,7 @@ Examples:
 type config struct {
 	doLogin      bool
 	doRenew      bool
+	doSync       bool
 	doStatus     bool
 	doAPITest    bool
 	forceRenew   bool
@@ -73,6 +76,9 @@ type config struct {
 func main() {
 	printLogo()
 	cfg := parseArgs(os.Args[1:])
+	if err := validateCommandSelection(cfg); err != nil {
+		fatalf("%v", err)
+	}
 
 	// -- proxy setup --
 	proxyURL := resolveProxy(cfg.proxySet, cfg.proxy)
@@ -81,7 +87,7 @@ func main() {
 		fatalf("failed to initialize HTTP client: %v", err)
 	}
 
-	if !cfg.doLogin && !cfg.doRenew && !cfg.doStatus && !cfg.doAPITest {
+	if !hasCommand(cfg) {
 		fmt.Print(helpText)
 		os.Exit(0)
 	}
@@ -108,7 +114,7 @@ func main() {
 	if cfg.doLogin {
 		loginPathArg = strings.TrimSpace(cfg.loginOutPath)
 	}
-	if !cfg.doLogin && loginPathArg == "" {
+	if requiresPathArg(cfg) && loginPathArg == "" {
 		fatalf("missing file/directory argument — run with --help for usage")
 	}
 
@@ -117,6 +123,17 @@ func main() {
 
 	if cfg.doLogin {
 		runLogin(client, cfg, loginPathArg, proxyURL)
+		return
+	}
+	if cfg.doSync {
+		fmt.Println()
+		infof("sync remote: %s", probeCfg.SyncURL)
+		infof("sync dir: %s", probeCfg.SyncDir)
+		result, err := runSync(context.Background(), client, probeCfg)
+		if err != nil {
+			fatalf("sync failed: %v", err)
+		}
+		printSyncSummary(result)
 		return
 	}
 
@@ -187,6 +204,16 @@ func main() {
 	fmt.Println(colorBold("══════════════════════ SUMMARY ══════════════════════"))
 	if cfg.doRenew {
 		writeRenewSummary(os.Stdout, renewRows)
+	}
+	if cfg.doRenew && shouldPromptForSyncAfterRenew(probeCfg, renewRows) {
+		fmt.Println()
+		if promptForSync(os.Stdin, os.Stdout) {
+			syncResult, err := runSync(context.Background(), client, probeCfg)
+			if err != nil {
+				fatalf("sync failed: %v", err)
+			}
+			printSyncSummary(syncResult)
+		}
 	}
 	if cfg.doStatus {
 		fmt.Println(colorCyan("  [quota summary]"))
@@ -283,6 +310,8 @@ func parseArgs(args []string) config {
 			cfg.doLogin = true
 		case "--renew":
 			cfg.doRenew = true
+		case "--sync":
+			cfg.doSync = true
 		case "-f":
 			cfg.forceRenew = true
 		case "--status":
@@ -320,6 +349,21 @@ func parseArgs(args []string) config {
 		i++
 	}
 	return cfg
+}
+
+func hasCommand(cfg config) bool {
+	return cfg.doLogin || cfg.doRenew || cfg.doSync || cfg.doStatus || cfg.doAPITest
+}
+
+func validateCommandSelection(cfg config) error {
+	if cfg.doSync && (cfg.doLogin || cfg.doRenew || cfg.doStatus || cfg.doAPITest) {
+		return fmt.Errorf("--sync cannot be combined with other commands; run it as a standalone sync command")
+	}
+	return nil
+}
+
+func requiresPathArg(cfg config) bool {
+	return !cfg.doLogin && !cfg.doSync
 }
 
 // resolveProxy determines the effective proxy URL.
@@ -453,6 +497,17 @@ func insertSuffix(path, suffix string) string {
 	ext := filepath.Ext(path)
 	base := strings.TrimSuffix(path, ext)
 	return base + suffix + ext
+}
+
+func printSyncSummary(result SyncResult) {
+	fmt.Println()
+	fmt.Println(colorBold("══════════════════════ SYNC SUMMARY ══════════════════════"))
+	fmt.Printf("  restored: %d  uploaded: %d  skipped: %d  failed: %d\n",
+		result.RestoredCount, result.UploadedCount, result.SkippedCount, result.FailedCount)
+	for _, err := range result.Errors {
+		errorf("sync item failed: %v", err)
+	}
+	fmt.Println(colorBold("══════════════════════════════════════════════════════════"))
 }
 
 // ---------- print helpers ----------

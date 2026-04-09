@@ -1,0 +1,7 @@
+{
+  "renew_before_expiry_days": 3,
+  "sync_url": "https://your-project.supabase.co",
+  "sync_api_key": "your-supabase-publishable-key",
+  "sync_aes_gcm_key": "replace-with-openssl-rand-hex-32-output",
+  "sync_dir": "./keys"
+}
